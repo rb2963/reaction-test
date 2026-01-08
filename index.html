@@ -1,219 +1,287 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <title>Reaction Speed Test</title>
-  <style>
-    body {
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      font-family: Arial, sans-serif;
-      background: #e0e0e0;
-      color: #111;
-    }
+<meta charset="UTF-8" />
+<title>반응속도 테스트</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    .hint-container {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
+<style>
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
 
-    .hint {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      color: white;
-      font-weight: bold;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 14px;
-    }
+  #circle-container {
+    position: relative;
+    margin-top: 120px;
+  }
 
-    .red { background: red; }
-    .green { background: green; }
-    .blue { background: blue; }
+  .hint-container {
+    position: absolute;
+    top: -55px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+  }
 
-    #circle {
-      width: 200px;
-      height: 200px;
-      border-radius: 50%;
-      background: white;
-      border: 5px solid black;
-      margin-bottom: 20px;
-      transition: background-color 0.15s;
-    }
+  .hint {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    color: white;
+    font-weight: bold;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 14px;
+  }
 
-    #info {
-      font-size: 18px;
-      margin-bottom: 10px;
-    }
+  .red { background: red; }
+  .green { background: green; }
+  .blue { background: blue; }
 
-    canvas {
-      margin-top: 30px;
-      background: #f5f5f5;
-      border: 1px solid #999;
-    }
-  </style>
+  #main-circle {
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    background-color: white;
+    border: 5px solid black;
+  }
+
+  #message {
+    margin-top: 25px;
+    font-size: 22px;
+    height: 30px;
+  }
+
+  #average-text {
+    font-size: 20px;
+    margin-top: 10px;
+  }
+
+  #graph-box {
+    width: 900px;
+    height: 500px;
+    margin-top: 40px;
+    display: none;
+  }
+</style>
 </head>
+
 <body>
 
+<div id="circle-container">
   <div class="hint-container">
     <div class="hint red">A</div>
     <div class="hint green">S</div>
     <div class="hint blue">D</div>
   </div>
+  <div id="main-circle"></div>
+</div>
 
-  <div id="circle"></div>
+<div id="message">스페이스바를 눌러 시작</div>
+<div id="average-text"></div>
 
-  <div id="info">스페이스바를 눌러 시작</div>
+<div id="graph-box">
+  <canvas id="resultChart"></canvas>
+</div>
 
-  <canvas id="chart" width="700" height="350"></canvas>
+<script>
+const circle = document.getElementById("main-circle");
+const message = document.getElementById("message");
+const avgText = document.getElementById("average-text");
 
-  <script>
-    const circle = document.getElementById("circle");
-    const info = document.getElementById("info");
-    const canvas = document.getElementById("chart");
-    const ctx = canvas.getContext("2d");
+const COLORS = [
+  { color: "red", key: "a" },
+  { color: "green", key: "s" },
+  { color: "blue", key: "d" }
+];
 
-    const colors = [
-      { name: "red", key: "a" },
-      { name: "green", key: "s" },
-      { name: "blue", key: "d" }
-    ];
+const MAX_TRIALS = 10;
 
-    const maxTrials = 10;
-    let trial = 0;
-    let times = [];
-    let startTime = null;
-    let currentColor = null;
-    let waitingForInput = false;
-    let testRunning = false;
+let trial = 0;
+let results = [];
+let waiting = false;
+let startTime = 0;
+let currentColor = null;
+let colorTimer = null;
+let finished = false;
+let chartInstance = null;
 
-    function resetCircle() {
-      circle.style.background = "white";
-      currentColor = null;
-      waitingForInput = false;
-    }
+// 동시 입력 판정
+let firstKey = null;
+let firstKeyTime = null;
+let confirmTimer = null;
+let simultaneousDetected = false;
 
-    function randomDelay() {
-      return 3000 + Math.random() * 3000;
-    }
+function randomDelay() {
+  return Math.random() * 3000 + 3000;
+}
 
-    function startRandomTimer() {
-      setTimeout(() => {
-        const color = colors[Math.floor(Math.random() * colors.length)];
-        currentColor = color;
-        circle.style.background = color.name;
-        startTime = performance.now();
-        waitingForInput = true;
-      }, randomDelay());
-    }
+function resetKeyDetection() {
+  firstKey = null;
+  firstKeyTime = null;
+  confirmTimer = null;
+  simultaneousDetected = false;
+}
 
-    function startTest() {
-      if (testRunning) return;
-      testRunning = true;
-      trial = 0;
-      times = [];
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      info.textContent = "집중하세요...";
-      resetCircle();
-      startRandomTimer();
-    }
+function startTrial() {
+  clearTimeout(colorTimer);
+  resetKeyDetection();
 
-    function handleKey(e) {
-      if (e.code === "Space" && !testRunning) {
-        startTest();
-        return;
+  circle.style.backgroundColor = "white";
+  currentColor = null;
+  waiting = false;
+
+  colorTimer = setTimeout(() => {
+    const choice = COLORS[Math.floor(Math.random() * COLORS.length)];
+    currentColor = choice;
+    circle.style.backgroundColor = choice.color;
+    startTime = performance.now();
+    waiting = true;
+  }, randomDelay());
+}
+
+function showPenalty(text) {
+  document.body.style.backgroundColor = "#555";
+  message.textContent = text;
+
+  setTimeout(() => {
+    document.body.style.backgroundColor = "#e0e0e0";
+    message.textContent = "";
+    startTrial();
+  }, 1000);
+}
+
+function handleValidInput(key, time) {
+  if (key !== currentColor.key) return;
+
+  const reaction = time - startTime;
+  results.push(reaction);
+  trial++;
+
+  message.textContent = `${trial}회차: ${reaction.toFixed(1)} ms`;
+
+  if (trial >= MAX_TRIALS) {
+    showGraph();
+  } else {
+    startTrial();
+  }
+}
+
+document.addEventListener("keydown", (e) => {
+
+  // 결과 화면 → 스페이스로 재시작
+  if (finished && e.code === "Space") {
+    finished = false;
+    trial = 0;
+    results = [];
+    avgText.textContent = "";
+    document.getElementById("graph-box").style.display = "none";
+    message.textContent = "";
+    startTrial();
+    return;
+  }
+
+  // 최초 시작
+  if (!finished && trial === 0 && !waiting && e.code === "Space") {
+    message.textContent = "";
+    startTrial();
+    return;
+  }
+
+  // 흰색 원일 때 입력
+  if (!waiting) {
+    showPenalty("너무 빨라요");
+    return;
+  }
+
+  const now = performance.now();
+
+  // 첫 입력
+  if (firstKeyTime === null) {
+    firstKeyTime = now;
+    firstKey = e.key;
+    simultaneousDetected = false;
+
+    confirmTimer = setTimeout(() => {
+      if (!simultaneousDetected) {
+        handleValidInput(firstKey, firstKeyTime);
+        resetKeyDetection();
       }
+    }, 5);
 
-      if (!waitingForInput || !currentColor) return;
-      if (e.key !== currentColor.key) return;
+    return;
+  }
 
-      const reactionTime = performance.now() - startTime;
-      times.push(reactionTime);
-      trial++;
+  // 5ms 이내 다른 키 → 동시입력
+  if (now - firstKeyTime <= 5 && e.key !== firstKey) {
+    simultaneousDetected = true;
+    clearTimeout(confirmTimer);
+    resetKeyDetection();
+    showPenalty("동시 입력 감지");
+  }
+});
 
-      info.textContent = `${trial} / ${maxTrials}회차: ${reactionTime.toFixed(0)} ms`;
-      resetCircle();
+function showGraph() {
+  finished = true;
+  waiting = false;
 
-      if (trial < maxTrials) {
-        startRandomTimer();
-      } else {
-        finishTest();
+  document.getElementById("graph-box").style.display = "block";
+
+  const avg = results.reduce((a, b) => a + b, 0) / results.length;
+  avgText.textContent = `평균 반응속도: ${avg.toFixed(1)} ms`;
+  message.textContent = "스페이스바를 눌러 다시 시작";
+
+  const ctx = document.getElementById("resultChart");
+
+  if (chartInstance) chartInstance.destroy();
+
+  chartInstance = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: results.map((_, i) => `${i + 1}회`),
+      datasets: [
+        {
+          label: "평균",
+          data: results.map(() => avg),
+          borderColor: "black",
+          borderWidth: 2,
+          pointRadius: 0,
+          order: 0
+        },
+        {
+          label: "결과",
+          data: results,
+          borderWidth: 3,
+          tension: 0.25,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          order: 1
+        }
+      ]
+    },
+    options: {
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.raw.toFixed(1)} ms`
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: false }
       }
     }
-
-    function finishTest() {
-      const avg = times.reduce((a, b) => a + b, 0) / times.length;
-      info.textContent = `평균 반응속도: ${avg.toFixed(0)} ms (스페이스바로 재시작)`;
-      drawLineChart(avg);
-      testRunning = false;
-    }
-
-    function drawLineChart(avg) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const paddingX = 60;
-      const paddingY = 40;
-      const graphWidth = canvas.width - paddingX * 2;
-      const graphHeight = canvas.height - paddingY * 2;
-
-      const maxTime = Math.max(...times) * 1.2;
-      const baseY = paddingY + graphHeight;
-      const stepX = graphWidth / (times.length - 1);
-
-      ctx.font = "14px Arial";
-
-      /* 평균선 (중앙, 뒤) */
-      const avgY = paddingY + graphHeight / 2;
-      ctx.strokeStyle = "black";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(paddingX, avgY);
-      ctx.lineTo(paddingX + graphWidth, avgY);
-      ctx.stroke();
-
-      ctx.fillStyle = "black";
-      ctx.fillText("평균", paddingX + graphWidth + 8, avgY + 5);
-
-      /* 결과 선 */
-      ctx.strokeStyle = "#1976d2";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-
-      times.forEach((time, i) => {
-        const x = paddingX + stepX * i;
-        const y = baseY - (time / maxTime) * graphHeight;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-
-      ctx.stroke();
-
-      /* 결과 점 + 값 */
-      ctx.fillStyle = "#1976d2";
-      times.forEach((time, i) => {
-        const x = paddingX + stepX * i;
-        const y = baseY - (time / maxTime) * graphHeight;
-
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = "#111";
-        ctx.fillText(`${time.toFixed(0)} ms`, x - 22, y - 12);
-        ctx.fillStyle = "#1976d2";
-      });
-    }
-
-    window.addEventListener("keydown", handleKey);
-  </script>
+  });
+}
+</script>
 
 </body>
 </html>
-

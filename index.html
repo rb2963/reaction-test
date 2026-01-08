@@ -214,13 +214,13 @@ document.addEventListener("keydown", (e) => {
         handleValidInput(firstKey, firstKeyTime);
         resetKeyDetection();
       }
-    }, 5);
+    }, 15);
 
     return;
   }
 
   // 5ms 이내 다른 키 → 동시입력
-  if (now - firstKeyTime <= 5 && e.key !== firstKey) {
+  if (now - firstKeyTime <= 15 && e.key !== firstKey) {
     simultaneousDetected = true;
     clearTimeout(confirmTimer);
     resetKeyDetection();
@@ -285,3 +285,4 @@ function showGraph() {
 
 </body>
 </html>
+
